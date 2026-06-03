@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter, useParams } from 'next/navigation'
 
@@ -12,7 +12,7 @@ type BlockSettings = {
 
 const APP_CATEGORIES: Record<string, string[]> = {
   'סושיאל': ['facebook', 'instagram', 'twitter', 'tiktok', 'snapchat', 'telegram', 'whatsapp', 'discord'],
-  'בידור': ['youtube', 'netflix', 'spotify', 'twitch', 'disney', 'hbo', 'prime'],
+  'בידור': ['youtube', 'netflix', 'spotify', 'twitch', 'disney', 'hbo', 'prime', 'studio'],
   'גיימינג': ['game', 'gaming', 'chess', 'puzzle', 'clash', 'roblox'],
   'קניות': ['amazon', 'ebay', 'aliexpress', 'shop', 'store'],
   'דפדפנים': ['chrome', 'firefox', 'safari', 'browser', 'opera', 'brave'],
@@ -34,7 +34,12 @@ export default function DevicePage() {
   const deviceId = params.id as string
 
   const [device, setDevice] = useState<any>(null)
-  const [settings, setSettings] = useState<BlockSettings>({ blocked_domains: [], blocked_apps: [], block_level: 'medium' })
+  const [settingsId, setSettingsId] = useState<string | null>(null)
+  const [settings, setSettings] = useState<BlockSettings>({
+    blocked_domains: [],
+    blocked_apps: [],
+    block_level: 'medium'
+  })
   const [activeTab, setActiveTab] = useState<'apps' | 'sites' | 'settings'>('apps')
   const [appSearch, setAppSearch] = useState('')
   const [newDomain, setNewDomain] = useState('')
@@ -42,23 +47,73 @@ export default function DevicePage() {
   const [saving, setSaving] = useState(false)
   const [activeCategory, setActiveCategory] = useState('הכל')
 
-  useEffect(() => { loadData() }, [deviceId])
+  const loadData = useCallback(async () => {
+    const { data: dev } = await supabase
+      .from('devices')
+      .select('*')
+      .eq('id', deviceId)
+      .single()
 
-  async function loadData() {
-    const { data: dev } = await supabase.from('devices').select('*').eq('id', deviceId).single()
     if (!dev) { router.push('/dashboard'); return }
     setDevice(dev)
 
-    const { data: s } = await supabase.from('block_settings').select('*').eq('device_id', deviceId).single()
-    if (s) setSettings({ blocked_domains: s.blocked_domains || [], blocked_apps: s.blocked_apps || [], block_level: s.block_level || 'medium' })
+    const { data: s } = await supabase
+      .from('block_settings')
+      .select('*')
+      .eq('device_id', deviceId)
+      .single()
+
+    if (s) {
+      setSettingsId(s.id)
+      setSettings({
+        blocked_domains: s.blocked_domains || [],
+        blocked_apps: s.blocked_apps || [],
+        block_level: s.block_level || 'medium'
+      })
+    }
     setLoading(false)
-  }
+  }, [deviceId, router])
+
+  useEffect(() => { loadData() }, [loadData])
 
   async function save() {
     setSaving(true)
-    await supabase.from('block_settings').upsert({ device_id: deviceId, ...settings, updated_at: new Date().toISOString() })
+    try {
+      if (settingsId) {
+        // עדכון רשומה קיימת
+        const { error } = await supabase
+          .from('block_settings')
+          .update({
+            blocked_domains: settings.blocked_domains,
+            blocked_apps: settings.blocked_apps,
+            block_level: settings.block_level,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', settingsId)
+
+        if (error) throw error
+      } else {
+        // יצירת רשומה חדשה
+        const { data, error } = await supabase
+          .from('block_settings')
+          .insert({
+            device_id: deviceId,
+            blocked_domains: settings.blocked_domains,
+            blocked_apps: settings.blocked_apps,
+            block_level: settings.block_level,
+          })
+          .select()
+          .single()
+
+        if (error) throw error
+        if (data) setSettingsId(data.id)
+      }
+
+      alert('✅ הגדרות נשמרו בהצלחה!')
+    } catch (e: any) {
+      alert('❌ שגיאה בשמירה: ' + e.message)
+    }
     setSaving(false)
-    alert('✅ נשמר!')
   }
 
   function toggleApp(pkg: string) {
@@ -72,9 +127,19 @@ export default function DevicePage() {
 
   function addDomain() {
     if (!newDomain.trim()) return
-    const domain = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*/, '')
+    const domain = newDomain.trim().toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*/, '')
+    if (settings.blocked_domains.includes(domain)) return
     setSettings(prev => ({ ...prev, blocked_domains: [...prev.blocked_domains, domain] }))
     setNewDomain('')
+  }
+
+  function removeDomain(domain: string) {
+    setSettings(prev => ({
+      ...prev,
+      blocked_domains: prev.blocked_domains.filter(d => d !== domain)
+    }))
   }
 
   function isOnline(lastSeen: string | null): boolean {
@@ -93,24 +158,33 @@ export default function DevicePage() {
 
   const blockedCount = settings.blocked_apps.length
 
-  if (loading) return <div className="flex items-center justify-center min-h-screen"><p className="text-slate-400">טוען...</p></div>
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen">
+      <p className="text-slate-400">טוען...</p>
+    </div>
+  )
 
   return (
     <main className="min-h-screen max-w-2xl mx-auto p-4">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 pt-4">
-        <button onClick={() => router.push('/dashboard')} className="text-slate-400 hover:text-white text-2xl">←</button>
+        <button onClick={() => router.push('/dashboard')}
+          className="text-slate-400 hover:text-white text-2xl">←</button>
         <div className="flex-1">
           <h1 className="text-xl font-bold">{device?.name}</h1>
           <div className="flex items-center gap-2 mt-0.5">
             <div className={`w-2 h-2 rounded-full ${isOnline(device?.last_seen) ? 'bg-green-500' : 'bg-slate-600'}`} />
-            <span className="text-slate-400 text-sm">{isOnline(device?.last_seen) ? 'מחובר' : 'מנותק'}</span>
+            <span className="text-slate-400 text-sm">
+              {isOnline(device?.last_seen) ? 'מחובר' : 'מנותק'}
+            </span>
             <span className="text-slate-600 text-sm">•</span>
             <span className="text-yellow-400 text-sm font-mono">{device?.activation_code}</span>
           </div>
         </div>
         {blockedCount > 0 && (
-          <span className="bg-red-600 text-white text-xs px-2 py-1 rounded-full">{blockedCount} חסומות</span>
+          <span className="bg-red-600 text-white text-xs px-2 py-1 rounded-full">
+            {blockedCount} חסומות
+          </span>
         )}
       </div>
 
@@ -122,7 +196,9 @@ export default function DevicePage() {
           { key: 'settings', label: '⚙️ הגדרות' },
         ].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key as any)}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${activeTab === tab.key ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${
+              activeTab === tab.key ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+            }`}>
             {tab.label}
           </button>
         ))}
@@ -142,11 +218,14 @@ export default function DevicePage() {
                 placeholder="🔍 חפש אפליקציה..."
                 className="w-full bg-slate-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none mb-3" />
 
-              {/* Categories */}
               <div className="flex gap-2 overflow-x-auto pb-2 mb-3">
                 {categories.map(cat => (
                   <button key={cat} onClick={() => setActiveCategory(cat)}
-                    className={`px-3 py-1 rounded-full text-xs whitespace-nowrap transition border ${activeCategory === cat ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                    className={`px-3 py-1 rounded-full text-xs whitespace-nowrap transition border ${
+                      activeCategory === cat
+                        ? 'bg-blue-600 border-blue-500 text-white'
+                        : 'border-slate-700 text-slate-400 hover:border-slate-500'
+                    }`}>
                     {cat}
                   </button>
                 ))}
@@ -159,12 +238,18 @@ export default function DevicePage() {
                   const isBlocked = settings.blocked_apps.includes(app.package)
                   return (
                     <div key={app.package} onClick={() => toggleApp(app.package)}
-                      className={`flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer transition ${isBlocked ? 'bg-red-950 border border-red-800' : 'bg-slate-800 hover:bg-slate-700'}`}>
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer transition ${
+                        isBlocked
+                          ? 'bg-red-950 border border-red-800'
+                          : 'bg-slate-800 hover:bg-slate-700'
+                      }`}>
                       <div>
                         <p className="text-sm font-medium">{app.name}</p>
                         <p className="text-slate-600 text-xs">{getCategory(app)}</p>
                       </div>
-                      <div className={`px-3 py-1 rounded-full text-xs font-medium ${isBlocked ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                      <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        isBlocked ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-300'
+                      }`}>
                         {isBlocked ? '🚫 חסום' : 'פעיל'}
                       </div>
                     </div>
@@ -184,16 +269,18 @@ export default function DevicePage() {
               onKeyDown={e => e.key === 'Enter' && addDomain()}
               placeholder="הכנס כתובת אתר לחסימה..."
               className="flex-1 bg-slate-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none" />
-            <button onClick={addDomain} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-sm font-medium">
+            <button onClick={addDomain}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-sm font-medium">
               חסום
             </button>
           </div>
 
           <div className="flex flex-col gap-2">
             {settings.blocked_domains.map(domain => (
-              <div key={domain} className="flex items-center justify-between bg-slate-800 rounded-xl px-4 py-3">
+              <div key={domain}
+                className="flex items-center justify-between bg-slate-800 rounded-xl px-4 py-3">
                 <span className="text-sm font-mono text-red-300">🚫 {domain}</span>
-                <button onClick={() => setSettings(prev => ({ ...prev, blocked_domains: prev.blocked_domains.filter(d => d !== domain) }))}
+                <button onClick={() => removeDomain(domain)}
                   className="text-slate-500 hover:text-red-400 text-xl leading-none">×</button>
               </div>
             ))}
@@ -208,13 +295,19 @@ export default function DevicePage() {
       {activeTab === 'settings' && (
         <div className="bg-slate-900 rounded-2xl p-4">
           <label className="text-slate-400 text-sm mb-3 block">רמת חסימת DNS</label>
-          <div className="grid grid-cols-3 gap-2 mb-6">
-            {[{ value: 'light', label: '🟡 קלה', desc: 'תוכן בוגר בלבד' },
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { value: 'light', label: '🟡 קלה', desc: 'תוכן בוגר בלבד' },
               { value: 'medium', label: '🟠 בינונית', desc: 'בוגר + הימורים' },
               { value: 'strict', label: '🔴 מחמירה', desc: 'הכל + רשתות חברתיות' }
             ].map(level => (
-              <button key={level.value} onClick={() => setSettings(prev => ({ ...prev, block_level: level.value }))}
-                className={`py-3 px-2 rounded-xl text-sm transition border flex flex-col items-center gap-1 ${settings.block_level === level.value ? 'border-blue-500 bg-blue-950' : 'border-slate-700 text-slate-400'}`}>
+              <button key={level.value}
+                onClick={() => setSettings(prev => ({ ...prev, block_level: level.value }))}
+                className={`py-3 px-2 rounded-xl text-sm transition border flex flex-col items-center gap-1 ${
+                  settings.block_level === level.value
+                    ? 'border-blue-500 bg-blue-950'
+                    : 'border-slate-700 text-slate-400'
+                }`}>
                 <span className="font-medium">{level.label}</span>
                 <span className="text-xs text-slate-500 text-center">{level.desc}</span>
               </button>
