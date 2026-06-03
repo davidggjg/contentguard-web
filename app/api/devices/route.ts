@@ -1,16 +1,12 @@
+export const dynamic = 'force-dynamic'
+
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
-// חשוב: persistSession: false מונע מ-session של משתמש לדרוס את ה-service key
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!,
-  {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    }
-  }
+  { auth: { persistSession: false, autoRefreshToken: false } }
 )
 
 export async function POST(req: NextRequest) {
@@ -29,7 +25,6 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
 
     if (error) {
-      console.error('Supabase error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -42,11 +37,11 @@ export async function POST(req: NextRequest) {
       device_name: device.name,
       settings: (device.block_settings as any)?.[0] || {
         blocked_domains: [],
+        blocked_apps: [],
         block_level: 'medium'
       }
     })
   } catch (e: any) {
-    console.error('Route error:', e)
     return NextResponse.json({ error: 'שגיאת שרת: ' + e.message }, { status: 500 })
   }
 }
