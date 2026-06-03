@@ -34,7 +34,6 @@ export default function DevicePage() {
   const deviceId = params.id as string
 
   const [device, setDevice] = useState<any>(null)
-  const [settingsId, setSettingsId] = useState<string | null>(null)
   const [settings, setSettings] = useState<BlockSettings>({
     blocked_domains: [],
     blocked_apps: [],
@@ -64,7 +63,6 @@ export default function DevicePage() {
       .single()
 
     if (s) {
-      setSettingsId(s.id)
       setSettings({
         blocked_domains: s.blocked_domains || [],
         blocked_apps: s.blocked_apps || [],
@@ -79,39 +77,21 @@ export default function DevicePage() {
   async function save() {
     setSaving(true)
     try {
-      if (settingsId) {
-        // עדכון רשומה קיימת
-        const { error } = await supabase
-          .from('block_settings')
-          .update({
-            blocked_domains: settings.blocked_domains,
-            blocked_apps: settings.blocked_apps,
-            block_level: settings.block_level,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', settingsId)
-
-        if (error) throw error
-      } else {
-        // יצירת רשומה חדשה
-        const { data, error } = await supabase
-          .from('block_settings')
-          .insert({
-            device_id: deviceId,
-            blocked_domains: settings.blocked_domains,
-            blocked_apps: settings.blocked_apps,
-            block_level: settings.block_level,
-          })
-          .select()
-          .single()
-
-        if (error) throw error
-        if (data) setSettingsId(data.id)
-      }
-
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: deviceId,
+          blocked_domains: settings.blocked_domains,
+          blocked_apps: settings.blocked_apps,
+          block_level: settings.block_level,
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
       alert('✅ הגדרות נשמרו בהצלחה!')
     } catch (e: any) {
-      alert('❌ שגיאה בשמירה: ' + e.message)
+      alert('❌ שגיאה: ' + e.message)
     }
     setSaving(false)
   }
@@ -166,7 +146,6 @@ export default function DevicePage() {
 
   return (
     <main className="min-h-screen max-w-2xl mx-auto p-4">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-6 pt-4">
         <button onClick={() => router.push('/dashboard')}
           className="text-slate-400 hover:text-white text-2xl">←</button>
@@ -188,7 +167,6 @@ export default function DevicePage() {
         )}
       </div>
 
-      {/* Tabs */}
       <div className="flex bg-slate-900 rounded-xl p-1 mb-4 gap-1">
         {[
           { key: 'apps', label: '📱 אפליקציות' },
@@ -204,7 +182,6 @@ export default function DevicePage() {
         ))}
       </div>
 
-      {/* Apps Tab */}
       {activeTab === 'apps' && (
         <div className="bg-slate-900 rounded-2xl p-4">
           {apps.length === 0 ? (
@@ -217,7 +194,6 @@ export default function DevicePage() {
               <input value={appSearch} onChange={e => setAppSearch(e.target.value)}
                 placeholder="🔍 חפש אפליקציה..."
                 className="w-full bg-slate-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none mb-3" />
-
               <div className="flex gap-2 overflow-x-auto pb-2 mb-3">
                 {categories.map(cat => (
                   <button key={cat} onClick={() => setActiveCategory(cat)}
@@ -230,18 +206,14 @@ export default function DevicePage() {
                   </button>
                 ))}
               </div>
-
               <p className="text-slate-600 text-xs mb-2">{filteredApps.length} אפליקציות</p>
-
               <div className="flex flex-col gap-1.5 max-h-[500px] overflow-y-auto">
                 {filteredApps.map(app => {
                   const isBlocked = settings.blocked_apps.includes(app.package)
                   return (
                     <div key={app.package} onClick={() => toggleApp(app.package)}
                       className={`flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer transition ${
-                        isBlocked
-                          ? 'bg-red-950 border border-red-800'
-                          : 'bg-slate-800 hover:bg-slate-700'
+                        isBlocked ? 'bg-red-950 border border-red-800' : 'bg-slate-800 hover:bg-slate-700'
                       }`}>
                       <div>
                         <p className="text-sm font-medium">{app.name}</p>
@@ -261,7 +233,6 @@ export default function DevicePage() {
         </div>
       )}
 
-      {/* Sites Tab */}
       {activeTab === 'sites' && (
         <div className="bg-slate-900 rounded-2xl p-4">
           <div className="flex gap-2 mb-4">
@@ -274,7 +245,6 @@ export default function DevicePage() {
               חסום
             </button>
           </div>
-
           <div className="flex flex-col gap-2">
             {settings.blocked_domains.map(domain => (
               <div key={domain}
@@ -291,7 +261,6 @@ export default function DevicePage() {
         </div>
       )}
 
-      {/* Settings Tab */}
       {activeTab === 'settings' && (
         <div className="bg-slate-900 rounded-2xl p-4">
           <label className="text-slate-400 text-sm mb-3 block">רמת חסימת DNS</label>
@@ -316,7 +285,6 @@ export default function DevicePage() {
         </div>
       )}
 
-      {/* Save Button */}
       <button onClick={save} disabled={saving}
         className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-4 rounded-2xl transition mt-4 text-lg">
         {saving ? 'שומר...' : '💾 שמור הגדרות'}
