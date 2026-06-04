@@ -3,13 +3,13 @@ export const dynamic = 'force-dynamic'
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-)
-
 export async function POST(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  )
+
   try {
     const body = await req.json()
     const activation_code = body?.activation_code
@@ -24,13 +24,8 @@ export async function POST(req: NextRequest) {
       .eq('activation_code', activation_code.toUpperCase().trim())
       .maybeSingle()
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    if (!device) {
-      return NextResponse.json({ error: 'קוד הפעלה לא נמצא' }, { status: 404 })
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!device) return NextResponse.json({ error: 'קוד הפעלה לא נמצא' }, { status: 404 })
 
     return NextResponse.json({
       device_id: device.id,
@@ -47,12 +42,15 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  )
+
   try {
     const device_id = req.nextUrl.searchParams.get('device_id')
-
-    if (!device_id) {
-      return NextResponse.json({ error: 'device_id חסר' }, { status: 400 })
-    }
+    if (!device_id) return NextResponse.json({ error: 'device_id חסר' }, { status: 400 })
 
     const { data, error } = await supabase
       .from('block_settings')
@@ -60,13 +58,8 @@ export async function GET(req: NextRequest) {
       .eq('device_id', device_id)
       .maybeSingle()
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    if (!data) {
-      return NextResponse.json({ error: 'לא נמצא' }, { status: 404 })
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data) return NextResponse.json({ error: 'לא נמצא' }, { status: 404 })
 
     return NextResponse.json(data)
   } catch (e: any) {
