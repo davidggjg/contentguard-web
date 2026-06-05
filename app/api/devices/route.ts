@@ -13,14 +13,11 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const activation_code = body?.activation_code
-
-    if (!activation_code) {
-      return NextResponse.json({ error: 'קוד הפעלה חסר' }, { status: 400 })
-    }
+    if (!activation_code) return NextResponse.json({ error: 'קוד הפעלה חסר' }, { status: 400 })
 
     const { data: device, error } = await supabase
       .from('devices')
-      .select('id, name, activation_code, block_settings(*)')
+      .select('id, name, activation_code, is_locked, block_settings(*)')
       .eq('activation_code', activation_code.toUpperCase().trim())
       .maybeSingle()
 
@@ -30,14 +27,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       device_id: device.id,
       device_name: device.name,
+      is_locked: device.is_locked || false,
       settings: (device.block_settings as any)?.[0] || {
-        blocked_domains: [],
-        blocked_apps: [],
-        block_level: 'medium'
+        blocked_domains: [], blocked_apps: [], block_level: 'medium'
       }
     })
   } catch (e: any) {
-    return NextResponse.json({ error: 'שגיאת שרת: ' + e.message }, { status: 500 })
+    return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
 
@@ -52,6 +48,12 @@ export async function GET(req: NextRequest) {
     const device_id = req.nextUrl.searchParams.get('device_id')
     if (!device_id) return NextResponse.json({ error: 'device_id חסר' }, { status: 400 })
 
+    const { data: device } = await supabase
+      .from('devices')
+      .select('is_locked')
+      .eq('id', device_id)
+      .single()
+
     const { data, error } = await supabase
       .from('block_settings')
       .select('*')
@@ -61,7 +63,10 @@ export async function GET(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!data) return NextResponse.json({ error: 'לא נמצא' }, { status: 404 })
 
-    return NextResponse.json(data)
+    return NextResponse.json({
+      ...data,
+      is_locked: device?.is_locked || false
+    })
   } catch (e: any) {
     return NextResponse.json({ error: 'שגיאת שרת' }, { status: 500 })
   }
